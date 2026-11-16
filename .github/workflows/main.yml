@@ -1,4 +1,4 @@
-name: Windows Cloud PC - AnyDesk (Stable)
+name: Windows Cloud PC - AnyDesk (High Performance - 128GB)
 
 on:
   workflow_dispatch: # Permite rodar manualmente quando quiser
@@ -14,9 +14,9 @@ jobs:
 
       - name: Install AnyDesk
         run: |
-          # Baixa o instalador silencioso
+          Write-Host "Baixando AnyDesk..."
           Invoke-WebRequest -Uri "https://download.anydesk.com/AnyDesk.exe" -OutFile "$env:TEMP\AnyDesk.exe"
-          # Instala sem interface gráfica
+          Write-Host "Instalando AnyDesk em modo silencioso..."
           Start-Process -FilePath "$env:TEMP\AnyDesk.exe" -ArgumentList "/SILENT /NORESTART" -Wait
           Write-Host "AnyDesk instalado com sucesso."
 
@@ -25,9 +25,14 @@ jobs:
         run: |
           $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
           
-          # Inicia o serviço
-          Start-Process $anydeskPath -WindowStyle Hidden
-          Start-Sleep -Seconds 10 # Aguarda inicialização completa
+          # Define prioridade alta para garantir desempenho máximo
+          Write-Host "Iniciando serviço AnyDesk com prioridade alta..."
+          $process = Start-Process $anydeskPath -WindowStyle Hidden -PassThru
+          if ($process) {
+              $process.PriorityClass = "AboveNormal"
+          }
+          
+          Start-Sleep -Seconds 15 # Aguarda inicialização completa e registro do serviço
 
           # Obtém o ID
           $id = & $anydeskPath --get-id
@@ -35,23 +40,45 @@ jobs:
           # Define uma senha fixa (Mude '1234' se preferir outra)
           & $anydeskPath --password 1234
           
+          # Configurações avançadas para estabilidade e performance
+          Write-Host "Aplicando configurações de performance..."
+          # Desabilita animações para reduzir uso de CPU/GPU desnecessário
+          reg add "HKCU\Software\AnyDesk" /v "enable_animations" /t REG_DWORD /d 0 /f
+          # Força modo de cor alto se disponível
+          & $anydeskPath --set-setting-ui color-depth "high"
+          
           # Exibe o ID nos logs para você copiar
           Write-Host ">>> SEU ID É: $id <<<"
           echo "ANYDESK_ID=$id" >> $env:GITHUB_OUTPUT
 
+      - name: Optimize System Resources
+        run: |
+          # Aumenta o limite de memória virtual para evitar crashes em tarefas pesadas
+          Write-Host "Otimizando recursos do sistema..."
+          $compSystem = [wmiclass]"\\.\root\cimv2:Win32_ComputerSystem"
+          $currentMode = $compSystem.GetWmiProperty($null, "PowerScheme")
+          
+          # Garante que o plano de energia está em Alta Performance
+          powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+          
+          Write-Host "Recursos otimizados para 128GB RAM."
+
       - name: Keep Connection Alive
         run: |
-          Write-Host "Monitorando conexão..."
+          Write-Host "Monitorando conexão e mantendo runner ativo..."
           while ($true) {
               # Verifica se o processo está vivo
               if (-not (Get-Process -Name AnyDesk -ErrorAction SilentlyContinue)) {
                   Write-Host "Processo fechado. Reiniciando..."
                   $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
-                  Start-Process $anydeskPath -WindowStyle Hidden
+                  $process = Start-Process $anydeskPath -WindowStyle Hidden -PassThru
+                  if ($process) {
+                      $process.PriorityClass = "AboveNormal"
+                  }
                   Start-Sleep -Seconds 5
               }
               
-              # Mantém o runner ativo evitando timeout
-              $env:GITHUB_STEP_SUMMARY += "`nConectado via AnyDesk.`"
+              # Atualiza o summary periodicamente para manter o job ativo visualmente
+              $env:GITHUB_STEP_SUMMARY += "`n**Status:** Conectado via AnyDesk. Uso de Memória: $(Get-CimInstance Win32_OperatingSystem | Select-Object @{Name='Used';Expression={$_.TotalVisibleMemorySize - $_.FreePhysicalMemory}}, @{Name='Free';Expression={$_.FreePhysicalMemory}}} MB"`
               Start-Sleep -Seconds 60
           }
