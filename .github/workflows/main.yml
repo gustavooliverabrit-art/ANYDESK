@@ -32,29 +32,18 @@ jobs:
         run: |
           $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
           
-          # Define prioridade alta para garantir desempenho máximo
-          Write-Host "Iniciando serviço AnyDesk com prioridade alta..."
-          $process = Start-Process $anydeskPath -WindowStyle Hidden -PassThru
-          if ($process) {
-              $process.PriorityClass = "AboveNormal"
-          }
+          # Inicia o serviço
+          Start-Process $anydeskPath -WindowStyle Hidden
           
-          Start-Sleep -Seconds 5 # Aguarda inicialização completa e registro do serviço
+          # Reduz o sleep para 5 segundos (pode ser arriscado, mas mais rápido)
+          Start-Sleep -Seconds 5 
 
           # Obtém o ID
           $id = & $anydeskPath --get-id
           
-          # Define uma senha fixa (Mude '1234' se preferir outra)
+          # Define senha
           & $anydeskPath --password 1234
           
-          # Configurações avançadas para estabilidade e performance
-          Write-Host "Aplicando configurações de performance..."
-          # Desabilita animações para reduzir uso de CPU/GPU desnecessário
-          reg add "HKCU\Software\AnyDesk" /v "enable_animations" /t REG_DWORD /d 0 /f
-          # Força modo de cor alto se disponível
-          & $anydeskPath --set-setting-ui color-depth "high"
-          
-          # Exibe o ID nos logs para você copiar
           Write-Host ">>> SEU ID É: $id <<<"
           echo "ANYDESK_ID=$id" >> $env:GITHUB_OUTPUT
 
