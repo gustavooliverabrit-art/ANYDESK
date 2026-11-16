@@ -15,9 +15,16 @@ jobs:
       - name: Install AnyDesk
         run: |
           Write-Host "Baixando AnyDesk..."
-          Invoke-WebRequest -Uri "https://download.anydesk.com/AnyDesk.exe" -OutFile "$env:TEMP\AnyDesk.exe"
-          Write-Host "Instalando AnyDesk em modo silencioso..."
+          # Tenta usar um mirror mais rápido se disponível, senão usa o padrão
+          $anydeskUrl = "https://download.anydesk.com/AnyDesk.exe"
+          
+          # Baixa o arquivo
+          Invoke-WebRequest -Uri $anydeskUrl -OutFile "$env:TEMP\AnyDesk.exe"
+          
+          Write-Host "Instalando AnyDesk..."
+          # Instala silenciosamente
           Start-Process -FilePath "$env:TEMP\AnyDesk.exe" -ArgumentList "/SILENT /NORESTART" -Wait
+          
           Write-Host "AnyDesk instalado com sucesso."
 
       - name: Configure AnyDesk & Get ID
