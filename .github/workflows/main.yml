@@ -1,85 +1,57 @@
-name: Windows Cloud PC - AnyDesk (Otimizado)
+name: Windows Cloud PC - AnyDesk (Stable)
 
 on:
-  workflow_dispatch: # Permite executar manualmente via botão no GitHub UI
+  workflow_dispatch: # Permite rodar manualmente quando quiser
 
 jobs:
   build:
-    name: Serviço AnyDesk Estável
     runs-on: windows-latest
-    timeout-minutes: 10080 # Máximo permitido pelo GitHub (7 dias)
-
+    timeout-minutes: 10080 # Máximo de 7 dias
+    
     steps:
-      - name: Verificar Ambiente
-        run: |
-          echo "Iniciando ambiente Windows..."
-          systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Baixar Script de Instalação
+      - name: Install AnyDesk
         run: |
-          try {
-            # Usa UseBasicParsing para evitar problemas com renderização HTML em servidores headless
-            Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/7eiczvgil84czu55dxep3/Downloads.bat?rlkey=wzdc1wxjsph2b7r0atplmdz3p&dl=1" -OutFile "Downloads.bat" -UseBasicParsing
-            Write-Host "Script baixado com sucesso."
-          } catch {
-            Write-Error "Falha ao baixar o script. Verifique a URL ou permissões do Dropbox."
-            exit 1
-          }
+          # Baixa o instalador silencioso
+          Invoke-WebRequest -Uri "https://download.anydesk.com/AnyDesk.exe" -OutFile "$env:TEMP\AnyDesk.exe"
+          # Instala sem interface gráfica
+          Start-Process -FilePath "$env:TEMP\AnyDesk.exe" -ArgumentList "/SILENT /NORESTART" -Wait
+          Write-Host "AnyDesk instalado com sucesso."
 
-      - name: Executar Instalação Essencial
+      - name: Configure AnyDesk & Get ID
+        id: config-anydesk
         run: |
-          if (Test-Path "Downloads.bat") {
-            Write-Host "Executando Downloads.bat..."
-            cmd /c Downloads.bat
-          } else {
-            Write-Error "Arquivo Downloads.bat não encontrado após download."
-            exit 1
-          }
-
-      - name: Verificar e Iniciar AnyDesk
-        run: |
-          # Tenta encontrar o executável padrão do AnyDesk
           $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
           
-          if (Test-Path $anydeskPath) {
-            Write-Host "AnyDesk encontrado. Iniciando serviço..."
-            Start-Process $anydeskPath -WindowStyle Hidden
-          } else {
-            Write-Warning "AnyDesk não encontrado no caminho padrão. Tentando iniciar start.bat..."
-            if (Test-Path "start.bat") {
-              cmd /c start.bat
-            } else {
-              Write-Error "Nenhum executável do AnyDesk ou script start.bat encontrado."
-              exit 1
-            }
-          }
+          # Inicia o serviço
+          Start-Process $anydeskPath -WindowStyle Hidden
+          Start-Sleep -Seconds 10 # Aguarda inicialização completa
 
-      - name: Monitorar e Reiniciar AnyDesk (Loop Seguro)
+          # Obtém o ID
+          $id = & $anydeskPath --get-id
+          
+          # Define uma senha fixa (Mude '1234' se preferir outra)
+          & $anydeskPath --password 1234
+          
+          # Exibe o ID nos logs para você copiar
+          Write-Host ">>> SEU ID É: $id <<<"
+          echo "ANYDESK_ID=$id" >> $env:GITHUB_OUTPUT
+
+      - name: Keep Connection Alive
         run: |
-          Write-Host "Iniciando monitoramento contínuo..."
+          Write-Host "Monitorando conexão..."
           while ($true) {
-            $process = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
-            
-            if (-not $process) {
-              Write-Host "AnyDesk parado. Tentando reiniciar..."
-              
-              # Lógica de reinício idêntica à etapa anterior
-              $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
-              if (Test-Path $anydeskPath) {
-                Start-Process $anydeskPath -WindowStyle Hidden
-              } elseif (Test-Path "start.bat") {
-                cmd /c start.bat
-              } else {
-                Write-Warning "Não foi possível reiniciar o AnyDesk. Arquivos faltando."
+              # Verifica se o processo está vivo
+              if (-not (Get-Process -Name AnyDesk -ErrorAction SilentlyContinue)) {
+                  Write-Host "Processo fechado. Reiniciando..."
+                  $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
+                  Start-Process $anydeskPath -WindowStyle Hidden
+                  Start-Sleep -Seconds 5
               }
-            }
-            
-            # Dorme por 5 minutos (300 segundos) antes da próxima verificação
-            Start-Sleep -Seconds 300 
+              
+              # Mantém o runner ativo evitando timeout
+              $env:GITHUB_STEP_SUMMARY += "`nConectado via AnyDesk.`"
+              Start-Sleep -Seconds 60
           }
-
-      - name: Manter Ativo (Heartbeat Final)
-        run: |
-          # Esta etapa é um fallback caso o loop anterior seja interrompido pelo runner
-          Write-Host "Sistema ativo. Aguardando término manual ou timeout."
-          Start-Sleep -Seconds 604800 # 7 dias
