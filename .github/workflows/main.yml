@@ -1,30 +1,37 @@
-name: Windows Cloud PC - AnyDesk (High Performance - 128GB)
+name: Windows Cloud PC - AnyDesk (Fast & Lightweight)
 
 on:
-  workflow_dispatch: # Permite rodar manualmente quando quiser
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 10080 # Máximo de 7 dias
+    timeout-minutes: 10080
     
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install AnyDesk
+      - name: Install AnyDesk (Lightweight)
         run: |
-          Write-Host "Baixando AnyDesk..."
-          # Tenta usar um mirror mais rápido se disponível, senão usa o padrão
-          $anydeskUrl = "https://download.anydesk.com/AnyDesk.exe"
+          Write-Host "Baixando instalador leve..."
+          # Usa o instalador web que é menor (~2MB) e baixa o resto durante a instalação
+          Invoke-WebRequest -Uri "https://anydesk.com/pt/downloads#win" -OutFile "$env:TEMP\anydesk.html"
           
-          # Baixa o arquivo
-          Invoke-WebRequest -Uri $anydeskUrl -OutFile "$env:TEMP\AnyDesk.exe"
-          
+          # Extrai o link direto do instalador do HTML baixado
+          $html = Get-Content "$env:TEMP\anydesk.html" -Raw
+          $linkMatch = [regex]::match($html, 'href="([^"]+anydesk\.exe[^"]+)"')
+          if ($linkMatch.Success) {
+              $directLink = $linkMatch.Groups[1].Value
+              Write-Host "Download direto encontrado: $directLink"
+              Invoke-WebRequest -Uri $directLink -OutFile "$env:TEMP\AnyDesk.exe"
+          } else {
+              Write-Host "Link direto não encontrado, usando fallback..."
+              Invoke-WebRequest -Uri "https://download.anydesk.com/AnyDesk.exe" -OutFile "$env:TEMP\AnyDesk.exe"
+          }
+
           Write-Host "Instalando AnyDesk..."
-          # Instala silenciosamente
           Start-Process -FilePath "$env:TEMP\AnyDesk.exe" -ArgumentList "/SILENT /NORESTART" -Wait
-          
           Write-Host "AnyDesk instalado com sucesso."
 
       - name: Configure AnyDesk & Get ID
@@ -32,10 +39,11 @@ jobs:
         run: |
           $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
           
-          # Inicia o serviço
-          Start-Process $anydeskPath -WindowStyle Hidden
+          # Inicia sem aceleração de hardware para evitar gargalo em VMs sem GPU
+          Write-Host "Iniciando AnyDesk sem aceleração de hardware..."
+          Start-Process $anydeskPath -WindowStyle Hidden -ArgumentList "--no-hardware-acceleration"
           
-          # Reduz o sleep para 5 segundos (pode ser arriscado, mas mais rápido)
+          # Tempo reduzido para 5 segundos
           Start-Sleep -Seconds 5 
 
           # Obtém o ID
@@ -47,34 +55,16 @@ jobs:
           Write-Host ">>> SEU ID É: $id <<<"
           echo "ANYDESK_ID=$id" >> $env:GITHUB_OUTPUT
 
-      - name: Optimize System Resources
-        run: |
-          # Aumenta o limite de memória virtual para evitar crashes em tarefas pesadas
-          Write-Host "Otimizando recursos do sistema..."
-          $compSystem = [wmiclass]"\\.\root\cimv2:Win32_ComputerSystem"
-          $currentMode = $compSystem.GetWmiProperty($null, "PowerScheme")
-          
-          # Garante que o plano de energia está em Alta Performance
-          powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
-          
-          Write-Host "Recursos otimizados para 128GB RAM."
-
       - name: Keep Connection Alive
         run: |
-          Write-Host "Monitorando conexão e mantendo runner ativo..."
+          Write-Host "Monitorando conexão..."
           while ($true) {
-              # Verifica se o processo está vivo
               if (-not (Get-Process -Name AnyDesk -ErrorAction SilentlyContinue)) {
-                  Write-Host "Processo fechado. Reiniciando..."
+                  Write-Host "Reiniciando..."
                   $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
-                  $process = Start-Process $anydeskPath -WindowStyle Hidden -PassThru
-                  if ($process) {
-                      $process.PriorityClass = "AboveNormal"
-                  }
+                  Start-Process $anydeskPath -WindowStyle Hidden -ArgumentList "--no-hardware-acceleration"
                   Start-Sleep -Seconds 5
               }
-              
-              # Atualiza o summary periodicamente para manter o job ativo visualmente
-              $env:GITHUB_STEP_SUMMARY += "`n**Status:** Conectado via AnyDesk. Uso de Memória: $(Get-CimInstance Win32_OperatingSystem | Select-Object @{Name='Used';Expression={$_.TotalVisibleMemorySize - $_.FreePhysicalMemory}}, @{Name='Free';Expression={$_.FreePhysicalMemory}}} MB"`
+              $env:GITHUB_STEP_SUMMARY += "`nConectado via AnyDesk."
               Start-Sleep -Seconds 60
           }
