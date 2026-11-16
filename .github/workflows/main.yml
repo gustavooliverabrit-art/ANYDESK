@@ -32,7 +32,7 @@ jobs:
               $process.PriorityClass = "AboveNormal"
           }
           
-          Start-Sleep -Seconds 15 # Aguarda inicialização completa e registro do serviço
+          Start-Sleep -Seconds 5 # Aguarda inicialização completa e registro do serviço
 
           # Obtém o ID
           $id = & $anydeskPath --get-id
