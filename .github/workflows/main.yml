@@ -1,51 +1,85 @@
-Nome: Windows Cloud PC - Anydesk (Otimizado)
+name: Windows Cloud PC - AnyDesk (Otimizado)
 
-em:
-  workflow_dispatch:
+on:
+  workflow_dispatch: # Permite executar manualmente via botão no GitHub UI
 
-empregos:
-  construir:
-    nome: Comece a construir...
-    Executa em: windows-latest
-    timeout-minutos: 10080 # Máximo de 7 dias para evitar tempo de execução excessivo
+jobs:
+  build:
+    name: Serviço AnyDesk Estável
+    runs-on: windows-latest
+    timeout-minutes: 10080 # Máximo permitido pelo GitHub (7 dias)
 
-    etapas:
-      - nome: Baixando e Instalando o Essentials
-        executar: |
-          # Baixe o arquivo .bat para instalar componentes essenciais
-          Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/7eiczvgil84czu55dxep3/Downloads.bat?rlkey=wzdc1wxjsph2b7r0atplmdz3p&dl=1" -OutFile "Downloads.bat"
-          # Executa o script .bat para instalar os componentes
-          cmd /c Downloads.bat
+    steps:
+      - name: Verificar Ambiente
+        run: |
+          echo "Iniciando ambiente Windows..."
+          systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
 
-      - nome: Entrar no AnyDesk
-        executar: |
-          # Verifique se o arquivo start.bat existe antes de executar
-          se (Caminho-Teste "start.bat") {
-            cmd /c start.bat
-          } else {
-            Write-Host "Arquivo start.bat não encontrado. Verifique a configuração."
+      - name: Baixar Script de Instalação
+        run: |
+          try {
+            # Usa UseBasicParsing para evitar problemas com renderização HTML em servidores headless
+            Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/7eiczvgil84czu55dxep3/Downloads.bat?rlkey=wzdc1wxjsph2b7r0atplmdz3p&dl=1" -OutFile "Downloads.bat" -UseBasicParsing
+            Write-Host "Script baixado com sucesso."
+          } catch {
+            Write-Error "Falha ao baixar o script. Verifique a URL ou permissões do Dropbox."
+            exit 1
           }
 
-      - Nome: Monitorar e reiniciar o AnyDesk, se necessário
-        executar: |
-          # Monitore a conexão do AnyDesk e reinicie se necessário
+      - name: Executar Instalação Essencial
+        run: |
+          if (Test-Path "Downloads.bat") {
+            Write-Host "Executando Downloads.bat..."
+            cmd /c Downloads.bat
+          } else {
+            Write-Error "Arquivo Downloads.bat não encontrado após download."
+            exit 1
+          }
+
+      - name: Verificar e Iniciar AnyDesk
+        run: |
+          # Tenta encontrar o executável padrão do AnyDesk
+          $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
+          
+          if (Test-Path $anydeskPath) {
+            Write-Host "AnyDesk encontrado. Iniciando serviço..."
+            Start-Process $anydeskPath -WindowStyle Hidden
+          } else {
+            Write-Warning "AnyDesk não encontrado no caminho padrão. Tentando iniciar start.bat..."
+            if (Test-Path "start.bat") {
+              cmd /c start.bat
+            } else {
+              Write-Error "Nenhum executável do AnyDesk ou script start.bat encontrado."
+              exit 1
+            }
+          }
+
+      - name: Monitorar e Reiniciar AnyDesk (Loop Seguro)
+        run: |
+          Write-Host "Iniciando monitoramento contínuo..."
           while ($true) {
             $process = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
-            se (-não $process) {
-              Write-Host "AnyDesk não está rodando, reiniciando..."
-              cmd /c start.bat
+            
+            if (-not $process) {
+              Write-Host "AnyDesk parado. Tentando reiniciar..."
+              
+              # Lógica de reinício idêntica à etapa anterior
+              $anydeskPath = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
+              if (Test-Path $anydeskPath) {
+                Start-Process $anydeskPath -WindowStyle Hidden
+              } elseif (Test-Path "start.bat") {
+                cmd /c start.bat
+              } else {
+                Write-Warning "Não foi possível reiniciar o AnyDesk. Arquivos faltando."
+              }
             }
-            Start-Sleep -Seconds 300 # Verifique a cada 5 minutos
+            
+            # Dorme por 5 minutos (300 segundos) antes da próxima verificação
+            Start-Sleep -Seconds 300 
           }
 
-      - nome: Contador de Tempo (Tarefa de Longa Duração)
-        executar: |
-          #Configura para manter a máquina em execução
-          Start-Sleep -Seconds 604800 # 7 dias de execução contínua
-
-      - nome: Limpar arquivos temporários
-        if: sucesso() # Executa esta etapa apenas se todas as etapas anteriores foram bem-sucedidas
-        executar: |
-          # Remove arquivos temporários ou logs gerados
-          Remove-Item Downloads.bat -Force
-          Write-Host "Limpeza completa."
+      - name: Manter Ativo (Heartbeat Final)
+        run: |
+          # Esta etapa é um fallback caso o loop anterior seja interrompido pelo runner
+          Write-Host "Sistema ativo. Aguardando término manual ou timeout."
+          Start-Sleep -Seconds 604800 # 7 dias
